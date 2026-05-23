@@ -37,6 +37,7 @@ dataframe = ["pandas>=1.5"]
 python-source = "python"
 module-name = "bufrust._bufrust"
 include = [
+  "LICENSE",
   "python/bufrust/py.typed",
   "python/bufrust/definitions/**/*",
 ]
