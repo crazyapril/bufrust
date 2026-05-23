@@ -322,6 +322,16 @@ maturin develop
 python -c "import bufrust; print(bufrust.__version__)"
 ```
 
+Update versions before tagging a release:
+
+```bash
+python scripts/bump-version.py v1.0.1
+git add Cargo.toml Cargo.lock pyproject.toml python/bufrust/__init__.py
+git commit -m "Release v1.0.1"
+git tag v1.0.1
+git push origin main v1.0.1
+```
+
 ## Optional ecCodes Reference Tests
 
 The default tests do not require files outside this repository.
