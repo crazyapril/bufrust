@@ -1,0 +1,11 @@
+target/
+target-codex/
+external/
+dist/
+*.egg-info/
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
