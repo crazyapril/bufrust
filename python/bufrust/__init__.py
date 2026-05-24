@@ -24,7 +24,7 @@ from ._bufrust import (
     parse_file,
 )
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 
 class BufrustError(ValueError):
