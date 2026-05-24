@@ -114,7 +114,7 @@ class Message:
         self,
         *,
         decode: bool = False,
-        include_meaning: bool = True,
+        raw: bool = False,
         **decode_options: Any,
     ) -> dict[str, Any]:
         """Convert metadata, descriptors, and optionally decoded values to dictionaries."""
@@ -126,18 +126,18 @@ class Message:
         if decode:
             out["values"] = values_to_dicts(
                 self.decode(**decode_options),
-                include_meaning=include_meaning,
+                raw=raw,
             )
         return out
 
-    def to_dataframe(self, *, include_meaning: bool = True, **decode_options: Any):
+    def to_dataframe(self, *, raw: bool = False, **decode_options: Any):
         """Decode values into a pandas DataFrame if pandas is installed."""
 
         return values_to_dataframe(
             self.decode(**decode_options),
             number_of_subsets=self.raw.number_of_subsets,
             message_index=self.index,
-            include_meaning=include_meaning,
+            raw=raw,
         )
 
     def __repr__(self) -> str:
@@ -258,7 +258,7 @@ class Dataset:
         self,
         *,
         decode: bool = False,
-        include_meaning: bool = True,
+        raw: bool = False,
         **decode_options: Any,
     ) -> dict[str, Any]:
         """Convert the dataset to dictionaries."""
@@ -269,7 +269,7 @@ class Dataset:
             "messages": [
                 message.to_dict(
                     decode=decode,
-                    include_meaning=include_meaning,
+                    raw=raw,
                     **decode_options,
                 )
                 for message in self.messages
@@ -280,14 +280,14 @@ class Dataset:
         self,
         message: int | None = None,
         *,
-        include_meaning: bool = True,
+        raw: bool = False,
         **decode_options: Any,
     ):
         """Decode one or all messages into a pandas DataFrame if pandas is installed."""
 
         if message is not None:
             return self.messages[message].to_dataframe(
-                include_meaning=include_meaning,
+                raw=raw,
                 **decode_options,
             )
         decoded = self.decode_all(**decode_options)
@@ -300,7 +300,7 @@ class Dataset:
                 values,
                 number_of_subsets=message.raw.number_of_subsets,
                 message_index=message.index,
-                include_meaning=include_meaning,
+                raw=raw,
             )
             for message, values in zip(self.messages, decoded)
         ]
@@ -358,7 +358,7 @@ def load(
 def values_to_dicts(
     values: Iterable[DecodedValue],
     *,
-    include_meaning: bool = True,
+    raw: bool = False,
 ) -> list[dict[str, Any]]:
     """Convert decoded values to plain dictionaries."""
 
@@ -367,12 +367,17 @@ def values_to_dicts(
         row = {
             "descriptor": value.descriptor,
             "name": value.name,
-            "value": value.value,
-            "raw": value.raw,
-            "text": value.text,
+            "data": value.data,
         }
-        if include_meaning:
-            row["meaning"] = value.meaning
+        if raw:
+            row.update(
+                {
+                    "raw": value.raw,
+                    "raw_text": value.raw_text,
+                    "raw_meaning": value.raw_meaning,
+                    "raw_value": value.raw_value,
+                }
+            )
         rows.append(row)
     return rows
 
@@ -382,7 +387,7 @@ def values_to_dataframe(
     *,
     number_of_subsets: int | None = None,
     message_index: int | None = None,
-    include_meaning: bool = True,
+    raw: bool = False,
 ):
     """Convert decoded values to a long-form pandas DataFrame."""
 
@@ -391,7 +396,25 @@ def values_to_dataframe(
     except ImportError as exc:
         raise BufrustError("values_to_dataframe() requires pandas") from exc
 
-    rows = values_to_dicts(values, include_meaning=include_meaning)
+    rows = [
+        {
+            "descriptor": value.descriptor,
+            "name": value.name,
+            "text": value.raw_text if value.raw_text is not None else value.raw_meaning,
+            "value": value.raw_value,
+            **(
+                {
+                    "raw": value.raw,
+                    "raw_text": value.raw_text,
+                    "raw_meaning": value.raw_meaning,
+                    "raw_value": value.raw_value,
+                }
+                if raw
+                else {}
+            ),
+        }
+        for value in values
+    ]
     if number_of_subsets and rows and len(rows) % number_of_subsets == 0:
         values_per_subset = len(rows) // number_of_subsets
         for offset, row in enumerate(rows):

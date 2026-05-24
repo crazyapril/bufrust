@@ -31,7 +31,7 @@ fn decodes_rjtd_drifting_buoy_fixture() {
     let values = decode_values_with_builtin_tables(bytes).unwrap();
     assert_eq!(values.len(), 48);
     assert_eq!(values[0].descriptor, 001087);
-    assert_eq!(values[0].value, Some(2_102_606.0));
+    assert_eq!(values[0].raw_value, Some(2_102_606.0));
 }
 
 #[test]
@@ -50,13 +50,13 @@ fn decodes_rjtd_iucc10_fixture() {
     let values = decode_values_with_builtin_tables(bytes).unwrap();
     assert_eq!(values.len(), 32);
     assert_eq!(values[7].descriptor, 001007);
-    assert_eq!(values[7].value, Some(174.0));
+    assert_eq!(values[7].raw_value, Some(174.0));
     assert_eq!(values[13].descriptor, 008005);
-    assert_eq!(values[13].meaning.as_deref(), Some("STORM CENTRE"));
+    assert_eq!(values[13].raw_meaning.as_deref(), Some("STORM CENTRE"));
     assert_eq!(values[10].descriptor, 001027);
-    assert_eq!(values[10].text.as_deref(), Some("nameless"));
+    assert_eq!(values[10].raw_text.as_deref(), Some("nameless"));
     assert_eq!(values[14].descriptor, 005002);
-    assert_eq!(values[14].value, Some(17.34));
+    assert_eq!(values[14].raw_value, Some(17.34));
     assert_eq!(values[15].descriptor, 006002);
-    assert_eq!(values[15].value, Some(117.8));
+    assert_eq!(values[15].raw_value, Some(117.8));
 }

@@ -4,6 +4,7 @@ use crate::error::{BufrError, Result};
 use crate::message::BufrMessage;
 use crate::tables::{ElementDefinition, TableSet};
 use pyo3::prelude::*;
+use pyo3::types::{PyFloat, PyNone, PyString};
 use serde::{Deserialize, Serialize};
 
 #[pyclass]
@@ -14,24 +15,37 @@ pub struct DecodedValue {
     #[pyo3(get)]
     pub name: String,
     #[pyo3(get)]
-    pub value: Option<f64>,
+    pub raw_value: Option<f64>,
     #[pyo3(get)]
     pub raw: Option<u64>,
     #[pyo3(get)]
-    pub text: Option<String>,
+    pub raw_text: Option<String>,
     #[pyo3(get)]
-    pub meaning: Option<String>,
+    pub raw_meaning: Option<String>,
 }
 
 #[pymethods]
 impl DecodedValue {
+    #[getter]
+    fn data(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if let Some(text) = &self.raw_text {
+            Ok(PyString::new(py, text).into_any().unbind())
+        } else if let Some(meaning) = &self.raw_meaning {
+            Ok(PyString::new(py, meaning).into_any().unbind())
+        } else if let Some(value) = self.raw_value {
+            Ok(PyFloat::new(py, value).into_any().unbind())
+        } else {
+            Ok(PyNone::get(py).to_owned().into_any().unbind())
+        }
+    }
+
     fn __repr__(&self) -> String {
-        if let Some(text) = &self.text {
+        if let Some(text) = &self.raw_text {
             format!("DecodedValue({:06}, {:?})", self.descriptor, text)
-        } else if let Some(meaning) = &self.meaning {
+        } else if let Some(meaning) = &self.raw_meaning {
             format!("DecodedValue({:06}, {:?})", self.descriptor, meaning)
         } else {
-            format!("DecodedValue({:06}, {:?})", self.descriptor, self.value)
+            format!("DecodedValue({:06}, {:?})", self.descriptor, self.raw_value)
         }
     }
 }
@@ -135,7 +149,10 @@ fn decode_compressed_descriptors_inner(
                 let column =
                     read_compressed_element_column(element, tables, coding, subset_count, reader)?;
                 if code == 31031 && coding.collecting_bitmap {
-                    let bit = column.first().and_then(|value| value.value).unwrap_or(0.0) as u8;
+                    let bit = column
+                        .first()
+                        .and_then(|value| value.raw_value)
+                        .unwrap_or(0.0) as u8;
                     coding.bitmap.push(bit);
                 } else {
                     coding.history.push(element.clone());
@@ -289,7 +306,7 @@ fn scale_and_reference(element: &ElementDefinition, coding: &ValueCodingState) -
 fn annotate_meanings(values: &mut [DecodedValue], element: &ElementDefinition, tables: &TableSet) {
     for value in values {
         if let Some(raw) = value.raw {
-            value.meaning = tables.code_meaning(element.code, raw).map(str::to_string);
+            value.raw_meaning = tables.code_meaning(element.code, raw).map(str::to_string);
         }
     }
 }
@@ -330,10 +347,10 @@ fn read_compressed_numeric_column(
         out.push(DecodedValue {
             descriptor,
             name: name.to_string(),
-            value,
+            raw_value: value,
             raw: raw_value.or(Some(min_raw)),
-            text: None,
-            meaning: None,
+            raw_text: None,
+            raw_meaning: None,
         });
     }
     Ok(out)
@@ -360,10 +377,10 @@ fn read_compressed_string_column(
             out.push(DecodedValue {
                 descriptor: element.code,
                 name: element.name.clone(),
-                value: Some(((string_base + subset_index + 1) as f64 * 1000.0) + width_bytes),
+                raw_value: Some(((string_base + subset_index + 1) as f64 * 1000.0) + width_bytes),
                 raw: None,
-                text,
-                meaning: None,
+                raw_text: text,
+                raw_meaning: None,
             });
         }
     } else {
@@ -372,10 +389,10 @@ fn read_compressed_string_column(
             out.push(DecodedValue {
                 descriptor: element.code,
                 name: element.name.clone(),
-                value: Some(((string_base + subset_index + 1) as f64 * 1000.0) + width_bytes),
+                raw_value: Some(((string_base + subset_index + 1) as f64 * 1000.0) + width_bytes),
                 raw: None,
-                text: text.clone(),
-                meaning: None,
+                raw_text: text.clone(),
+                raw_meaning: None,
             });
         }
     }
@@ -398,12 +415,12 @@ fn decode_ia5_text(bytes: &[u8]) -> Option<String> {
 }
 
 fn constant_replication_factor(column: &[DecodedValue]) -> Result<usize> {
-    let Some(first) = column.first().and_then(|value| value.value) else {
+    let Some(first) = column.first().and_then(|value| value.raw_value) else {
         return Ok(0);
     };
     if column.iter().any(|value| {
         value
-            .value
+            .raw_value
             .map(|value| (value - first).abs() > f64::EPSILON)
             .unwrap_or(true)
     }) {
@@ -443,7 +460,7 @@ fn decode_descriptor_values_inner(
                     coding.local_descriptor_width = None;
                 }
                 if code == 31031 && coding.collecting_bitmap {
-                    if let Some(value) = values.last().and_then(|value| value.value) {
+                    if let Some(value) = values.last().and_then(|value| value.raw_value) {
                         coding.bitmap.push(value as u8);
                     }
                 } else {
@@ -545,10 +562,10 @@ fn read_element(
         values.push(DecodedValue {
             descriptor: element.code,
             name: element.name.clone(),
-            value: Some((string_index as f64 * 1000.0) + f64::from(width / 8)),
+            raw_value: Some((string_index as f64 * 1000.0) + f64::from(width / 8)),
             raw: None,
-            text,
-            meaning: None,
+            raw_text: text,
+            raw_meaning: None,
         });
         return Ok(None);
     }
@@ -564,10 +581,10 @@ fn read_element(
     values.push(DecodedValue {
         descriptor: element.code,
         name: element.name.clone(),
-        value,
+        raw_value: value,
         raw: Some(raw),
-        text: None,
-        meaning: tables.code_meaning(element.code, raw).map(str::to_string),
+        raw_text: None,
+        raw_meaning: tables.code_meaning(element.code, raw).map(str::to_string),
     });
     Ok(value)
 }
@@ -584,10 +601,10 @@ fn read_associated_field(
     values.push(DecodedValue {
         descriptor: 999999,
         name: "associatedField".into(),
-        value: Some(raw as f64),
+        raw_value: Some(raw as f64),
         raw: Some(raw),
-        text: None,
-        meaning: None,
+        raw_text: None,
+        raw_meaning: None,
     });
     Ok(())
 }
@@ -614,10 +631,10 @@ fn apply_operator_or_value(
         values.push(DecodedValue {
             descriptor: code,
             name: "operator".into(),
-            value: Some(0.0),
+            raw_value: Some(0.0),
             raw: Some(0),
-            text: None,
-            meaning: None,
+            raw_text: None,
+            raw_meaning: None,
         });
     }
     if descriptor.x == 36 && descriptor.y == 0 {
@@ -669,10 +686,10 @@ fn apply_operator_or_column(
                 .map(|_| DecodedValue {
                     descriptor: code,
                     name: "operator".into(),
-                    value: Some(0.0),
+                    raw_value: Some(0.0),
                     raw: Some(0),
-                    text: None,
-                    meaning: None,
+                    raw_text: None,
+                    raw_meaning: None,
                 })
                 .collect(),
         );

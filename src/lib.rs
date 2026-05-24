@@ -172,7 +172,7 @@ mod tests {
             ..parsed.section4_data_offset + parsed.section4_data_length];
         let values = decode_uncompressed_values(&parsed, &tables, data).unwrap();
         assert_eq!(values[0].descriptor, 4001);
-        assert_eq!(values[0].value, Some(2026.0));
+        assert_eq!(values[0].raw_value, Some(2026.0));
     }
 
     #[test]

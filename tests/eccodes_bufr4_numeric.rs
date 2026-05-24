@@ -51,7 +51,7 @@ fn bufr4_numeric_values_match_eccodes_refs() {
         let got = decode_uncompressed_values(&message, &tables, section4)
             .unwrap_or_else(|err| panic!("{bufr_name}: {err}"))
             .into_iter()
-            .map(|value| value.value.unwrap_or(MISSING))
+            .map(|value| value.raw_value.unwrap_or(MISSING))
             .collect::<Vec<_>>();
         let expected = read_ref(&path);
 

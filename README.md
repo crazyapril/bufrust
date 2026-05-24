@@ -77,7 +77,7 @@ ds = bufrust.open("sample.bufr")
 values = ds.decode()
 
 for value in values[:5]:
-    print(value.descriptor, value.name, value.value, value.text)
+    print(value.descriptor, value.name, value.data)
 ```
 
 Work with multiple BUFR messages:
@@ -138,28 +138,30 @@ print(frame.shape)
 ```
 
 `to_dataframe()` returns a long-form table with columns such as `descriptor`,
-`name`, `value`, `raw`, `text`, `meaning`, `subset`, `position`, and `message`.
+`name`, `text`, `value`, `subset`, `position`, and `message`.
 
-Code-table and flag-table meanings are included by default in a `meaning`
-column populated from the bundled ecCodes `codetables` files:
+The DataFrame keeps text-like data and numeric data in separate columns:
+`text` is filled from `raw_text` or `raw_meaning`, while `value` is filled from
+`raw_value`.
 
 ```python
-print(frame[["descriptor", "raw", "meaning"]].dropna().head())
+print(frame[["descriptor", "text", "value"]].head())
 ```
 
-Use `include_meaning` to control that column:
+Use `raw=True` to include the underlying `raw`, `raw_text`, `raw_meaning`, and
+`raw_value` columns:
 
 ```python
-with_meaning = ds.to_dataframe()                       # default
-compact = ds.to_dataframe(include_meaning=False)       # omit meaning
-first = ds.to_dataframe(message=0, include_meaning=True)
+frame = ds.to_dataframe()
+debug = ds.to_dataframe(raw=True)
+first = ds.to_dataframe(message=0)
 ```
 
 For `ecmwf_cyclone_tracks.bufr`, this produces 45 BUFR messages and more than
 2.4 million decoded rows:
 
 ```text
-(2413286, 9)
+(2413286, 7)
 ```
 
 Typical analysis patterns:
@@ -185,8 +187,8 @@ first = ds.to_dataframe(message=0)
 If pandas is not installed, use dictionaries:
 
 ```python
-record = ds[0].to_dict(decode=True)                    # includes meaning
-compact = ds[0].to_dict(decode=True, include_meaning=False)
+record = ds[0].to_dict(decode=True)
+debug = ds[0].to_dict(decode=True, raw=True)
 print(record["values"][0])
 ```
 
@@ -201,18 +203,20 @@ Indicative median times on a local Windows workstation:
 
 | Library / operation | Median time | Output checked |
 | --- | ---: | --- |
-| `bufrust.open(path).decode_all()` | 0.764 s | 45 messages, 2,413,286 values, 149,430 meanings |
-| ecCodes Python `unpack + numericValues/stringValues` | 0.838 s | 45 messages, 2,413,286 numeric values, 90 strings |
-| pybufrkit `Decoder.process(...)` | 3.750 s | 45 messages, 2,413,286 values |
-| `bufrust.open(path).to_dataframe()` | 3.517 s | DataFrame shape `(2413286, 9)` |
+| `bufrust.open(path).decode_all()` | 0.757 s | 45 messages, 2,413,286 values, 149,430 meanings |
+| ecCodes Python `unpack + numericValues/stringValues` | 0.772 s | 45 messages, 2,413,286 numeric values, 90 strings |
+| pybufrkit `Decoder.process(...)` | 3.743 s | 45 messages, 2,413,286 values |
+| `bufrust.open(path).to_dataframe()` | 3.111 s | DataFrame shape `(2413286, 7)` |
 
 The ecCodes and pybufrkit rows use their normal low-level Python decode paths
-and do not construct a pandas DataFrame or a per-value `meaning` column. The
+and do not construct a pandas DataFrame or per-value text/meaning columns. The
 ecCodes row calls `unpack` and reads `numericValues`/`stringValues`; it is
 included as a strong reference point for decode throughput. The
 `bufrust.decode_all()` and `bufrust.to_dataframe()` rows include code/flag table
 meaning lookup, and the `to_dataframe()` row also includes pandas allocation for
-the long-form table with the default `meaning` column.
+the long-form table. By default that table keeps display text in `text` and
+numeric data in `value`; use `raw=True` to expose `raw_text`, `raw_meaning`,
+`raw_value`, and `raw`.
 
 ## Python API
 
@@ -231,21 +235,22 @@ the WMO and local table directories from the message header.
 Use `table_dir=` when you already know the exact table directory containing
 `element.table`, `sequence.def`, and optional `codetables/`.
 
-Code/flag table meanings are exposed by default on high-level conversions:
+Decoded values expose a display-oriented `data` property. It is chosen in this
+order: `raw_text`, then `raw_meaning`, then `raw_value`.
 
 ```python
-df = ds.to_dataframe()                                 # includes meaning
-df = ds.to_dataframe(include_meaning=False)            # compact columns
-record = ds[0].to_dict(decode=True)                    # includes meaning
-record = ds[0].to_dict(decode=True, include_meaning=False)
+record = ds[0].to_dict(decode=True)        # descriptor, name, data
+debug = ds[0].to_dict(decode=True, raw=True)
+df = ds.to_dataframe()                     # text and value columns
+debug_df = ds.to_dataframe(raw=True)
 ```
 
 Important objects:
 
 - `Dataset`: a file or byte buffer containing one or more messages
 - `Message`: one parsed BUFR message and its original bytes
-- `DecodedValue`: one decoded value with `descriptor`, `name`, `value`, `raw`,
-  `text`, and `meaning`
+- `DecodedValue`: one decoded value with `descriptor`, `name`, `data`,
+  `raw_text`, `raw_meaning`, `raw_value`, and `raw`
 - `TableSet`: loaded BUFR Table B/Table D definitions plus code/flag tables
 - `Descriptor`: an F/X/Y descriptor helper
 

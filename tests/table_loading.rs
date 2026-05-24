@@ -92,7 +92,7 @@ fn decodes_minimal_bufr4_message_with_loaded_tables() {
     let values = decode_uncompressed_values(&parsed, &tables, section4).unwrap();
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].descriptor, 4001);
-    assert_eq!(values[0].value, Some(2026.0));
+    assert_eq!(values[0].raw_value, Some(2026.0));
 }
 
 fn test_dir(name: &str) -> PathBuf {

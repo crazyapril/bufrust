@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let got = values
             .iter()
-            .map(|value| value.value.unwrap_or(MISSING))
+            .map(|value| value.raw_value.unwrap_or(MISSING))
             .collect::<Vec<_>>();
         let expected = read_ref(&path)?;
 
@@ -140,7 +140,7 @@ fn print_debug(
         let value = &values[offset];
         println!(
             "{offset}: {:06} got={} expected={} text={:?} name={}",
-            value.descriptor, got[offset], expected[offset], value.text, value.name
+            value.descriptor, got[offset], expected[offset], value.raw_text, value.name
         );
     }
 }
