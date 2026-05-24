@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "bufrust"
-version = "1.0.2"
+version = "1.0.3"
 description = "Fast BUFR edition 4 parser and decoder powered by Rust"
 requires-python = ">=3.9"
 readme = "README.md"
