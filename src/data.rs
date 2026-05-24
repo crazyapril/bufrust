@@ -219,10 +219,14 @@ fn read_compressed_element_column(
     subset_count: usize,
     reader: &mut BitReader<'_>,
 ) -> Result<Vec<DecodedValue>> {
-    let width = coding.local_descriptor_width.unwrap_or_else(|| {
-        let adjusted = element.width as i32 + coding.extra_width;
-        adjusted.max(0) as u16
-    });
+    let width = if element.unit == "CCITT IA5" {
+        coding.new_string_width.unwrap_or(element.width)
+    } else {
+        coding.local_descriptor_width.unwrap_or_else(|| {
+            let adjusted = element.width as i32 + coding.extra_width;
+            adjusted.max(0) as u16
+        })
+    };
     let scale = element.scale + coding.extra_scale;
     let reference = element.reference * coding.reference_factor;
     if element.unit == "CCITT IA5" {
@@ -238,6 +242,31 @@ fn read_compressed_element_column(
         subset_count,
         reader,
     )
+}
+
+fn read_numeric_width(element: &ElementDefinition, coding: &ValueCodingState) -> u16 {
+    coding.local_descriptor_width.unwrap_or_else(|| {
+        let adjusted = element.width as i32 + coding.extra_width;
+        adjusted.max(0) as u16
+    })
+}
+
+fn read_character_width(element: &ElementDefinition, coding: &ValueCodingState) -> u16 {
+    coding.new_string_width.unwrap_or(element.width)
+}
+
+fn read_element_width(element: &ElementDefinition, coding: &ValueCodingState) -> u16 {
+    if element.unit == "CCITT IA5" {
+        read_character_width(element, coding)
+    } else {
+        read_numeric_width(element, coding)
+    }
+}
+
+fn scale_and_reference(element: &ElementDefinition, coding: &ValueCodingState) -> (i32, i64) {
+    let scale = element.scale + coding.extra_scale;
+    let reference = element.reference * coding.reference_factor;
+    (scale, reference)
 }
 
 fn read_compressed_numeric_column(
@@ -466,12 +495,8 @@ fn read_element(
     coding: &mut ValueCodingState,
     values: &mut Vec<DecodedValue>,
 ) -> Result<Option<f64>> {
-    let width = coding.local_descriptor_width.unwrap_or_else(|| {
-        let adjusted = element.width as i32 + coding.extra_width;
-        adjusted.max(0) as u16
-    });
-    let scale = element.scale + coding.extra_scale;
-    let reference = element.reference * coding.reference_factor;
+    let width = read_element_width(element, coding);
+    let (scale, reference) = scale_and_reference(element, coding);
 
     if element.unit == "CCITT IA5" {
         let bytes = reader.read_bytes(width)?;
@@ -672,7 +697,13 @@ fn apply_operator(descriptor: Descriptor, coding: &mut ValueCodingState) {
                 coding.reference_factor = 10_i64.pow(descriptor.y as u32);
             }
         }
-        8 => coding.new_string_width = Some(descriptor.y as u16 * 8),
+        8 => {
+            coding.new_string_width = if descriptor.y == 0 {
+                None
+            } else {
+                Some(descriptor.y as u16 * 8)
+            }
+        }
         _ => {}
     }
 }
