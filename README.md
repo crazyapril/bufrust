@@ -56,31 +56,28 @@ bufrust = "1"
 
 ## Quick Start In Python
 
-Parse metadata only:
+Decode a BUFR file into plain Python dictionaries:
 
 ```python
 import bufrust
 
 ds = bufrust.open("sample.bufr")
+record = ds[0].to_dict()
 
-print(ds)
-print(ds.metadata[0])
-print(ds.descriptors[0])
+print(record["metadata"])
+print(record["descriptors"])
+print(record["values"][0])      # descriptor, name, data
 ```
 
-Decode values using the bundled ecCodes BUFR definitions:
+`to_dict()` decodes values by default using the bundled ecCodes BUFR
+definitions. Use `decode=False` when you only want metadata and descriptors:
 
 ```python
-import bufrust
-
-ds = bufrust.open("sample.bufr")
-values = ds.decode()
-
-for value in values[:5]:
-    print(value.descriptor, value.name, value.data)
+metadata_only = ds[0].to_dict(decode=False)
+debug = ds[0].to_dict(raw=True)  # also include raw/raw_text/raw_meaning/raw_value
 ```
 
-Work with multiple BUFR messages:
+For multiple-message files, iterate over the dataset:
 
 ```python
 ds = bufrust.open("multi-message.bufr")
@@ -94,102 +91,34 @@ for message in ds:
 Load from bytes:
 
 ```python
+from pathlib import Path
+
 payload = Path("sample.bufr").read_bytes()
 ds = bufrust.loads(payload)
 ```
 
-Convert to dictionaries:
-
-```python
-record = ds[0].to_dict()
-print(record["metadata"])
-print(record["values"][0])
-```
-
-## DataFrame Workflow
-
-Install the optional pandas extra:
+For pandas workflows, install the optional extra and call `to_dataframe()`:
 
 ```bash
 pip install "bufrust[dataframe]"
 ```
 
-`to_dataframe()` is the most convenient way to inspect and filter decoded BUFR
-data. It returns a long-form table where each decoded BUFR value is one row.
-
-The repository includes real BUFR4 files for examples and regression tests:
-
-```text
-tests/fixtures/ecmwf_cyclone_tracks.bufr
-tests/fixtures/rjtd_drifting_buoy.bufr
-tests/fixtures/rjtd_iucc10.bufr
-```
-
-Decode it directly into pandas:
-
 ```python
-import bufrust
-
 ds = bufrust.open("tests/fixtures/ecmwf_cyclone_tracks.bufr")
 frame = ds.to_dataframe()
 
-print(frame.head())
-print(frame.shape)
+print(frame[["descriptor", "name", "text", "value"]].head())
+print(frame.shape)  # (2413286, 7) for the bundled ECMWF cyclone fixture
 ```
 
-`to_dataframe()` returns a long-form table with columns such as `descriptor`,
-`name`, `text`, `value`, `subset`, `position`, and `message`.
-
-The DataFrame keeps text-like data and numeric data in separate columns:
-`text` is filled from `raw_text` or `raw_meaning`, while `value` is filled from
-`raw_value`.
+`to_dataframe()` returns one row per decoded BUFR value. Text-like data goes to
+`text` (`raw_text` or `raw_meaning`), while numeric data goes to `value`; pass
+`raw=True` to include the underlying raw fields.
 
 ```python
-print(frame[["descriptor", "text", "value"]].head())
-```
-
-Use `raw=True` to include the underlying `raw`, `raw_text`, `raw_meaning`, and
-`raw_value` columns:
-
-```python
-frame = ds.to_dataframe()
-debug = ds.to_dataframe(raw=True)
-first = ds.to_dataframe(message=0)
-```
-
-For `ecmwf_cyclone_tracks.bufr`, this produces 45 BUFR messages and more than
-2.4 million decoded rows:
-
-```text
-(2413286, 7)
-```
-
-Typical analysis patterns:
-
-```python
-# All latitude rows.
 latitudes = frame[frame["name"].str.contains("LATITUDE", case=False, na=False)]
-
-# Values from one BUFR message and subset.
 track0 = frame[(frame["message"] == 0) & (frame["subset"] == 0)]
-
-# Keep only numeric values.
-numeric = frame[frame["value"].notna()]
-```
-
-For large files, decode one message at a time:
-
-```python
-ds = bufrust.open("tests/fixtures/ecmwf_cyclone_tracks.bufr")
 first = ds.to_dataframe(message=0)
-```
-
-If pandas is not installed, use dictionaries:
-
-```python
-record = ds[0].to_dict()
-debug = ds[0].to_dict(raw=True)
-print(record["values"][0])
 ```
 
 ## Benchmark
@@ -419,16 +348,6 @@ numeric refs: passed=23 failed=0 unsupported=109
 
 `unsupported` includes non-BUFR4 fixtures and `uegabe.bufr`, which ecCodes'
 own reference script excludes because its numeric reference is incorrect.
-
-## Notes And Limitations
-
-- BUFR editions other than edition 4 are rejected.
-- ecCodes BUFR definitions are bundled. Pass `definitions=` or `table_dir=`
-  only when you want to override the bundled tables.
-- `to_dataframe()` is optional and imports pandas only when called.
-- The current decoded value model is long-form. Higher-level xarray-style
-  dimensions and coordinates can be built on top of this API as the decoder
-  matures.
 
 ## License
 
