@@ -47,13 +47,6 @@ pip install maturin
 maturin develop
 ```
 
-Rust:
-
-```toml
-[dependencies]
-bufrust = "1"
-```
-
 ## Quick Start In Python
 
 Decode a BUFR file into plain Python dictionaries:
@@ -257,6 +250,8 @@ print(tables.get_element(42001))
 ```
 
 ## Rust API
+
+(Not yet published on crates.io)
 
 ```rust
 use bufrust::{decode_values_with_builtin_tables, parse_message, TableSet};
