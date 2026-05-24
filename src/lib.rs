@@ -45,6 +45,7 @@ fn expand_descriptors(table_dir: &str, descriptors: Vec<u32>) -> PyResult<Vec<u3
 
 #[pyfunction]
 fn decode_values(data: &[u8], table_dir: &str) -> PyResult<Vec<DecodedValue>> {
+    let data = first_message_data(data).map_err(tables::to_py_err)?;
     let message = parse_message(data).map_err(tables::to_py_err)?;
     let tables = TableSet::from_eccodes_dir(table_dir).map_err(tables::to_py_err)?;
     let section4 = &data
@@ -54,6 +55,7 @@ fn decode_values(data: &[u8], table_dir: &str) -> PyResult<Vec<DecodedValue>> {
 
 #[pyfunction]
 fn decode_values_with_tables(data: &[u8], tables: &TableSet) -> PyResult<Vec<DecodedValue>> {
+    let data = first_message_data(data).map_err(tables::to_py_err)?;
     let message = parse_message(data).map_err(tables::to_py_err)?;
     let section4 = &data
         [message.section4_data_offset..message.section4_data_offset + message.section4_data_length];
@@ -65,6 +67,7 @@ fn decode_values_with_definitions(
     data: &[u8],
     definitions_root: &str,
 ) -> PyResult<Vec<DecodedValue>> {
+    let data = first_message_data(data).map_err(tables::to_py_err)?;
     let message = parse_message(data).map_err(tables::to_py_err)?;
     let tables = TableSet::from_eccodes_definitions(definitions_root, &message)
         .map_err(tables::to_py_err)?;
@@ -74,11 +77,19 @@ fn decode_values_with_definitions(
 }
 
 pub fn decode_values_with_builtin_tables(data: &[u8]) -> Result<Vec<DecodedValue>> {
+    let data = first_message_data(data)?;
     let message = parse_message(data)?;
     let tables = TableSet::from_builtin_definitions(&message)?;
     let section4 = &data
         [message.section4_data_offset..message.section4_data_offset + message.section4_data_length];
     decode_uncompressed_values(&message, &tables, section4)
+}
+
+fn first_message_data(data: &[u8]) -> Result<&[u8]> {
+    split_messages(data)?
+        .into_iter()
+        .next()
+        .ok_or(BufrError::MissingMagic)
 }
 
 #[pymodule]

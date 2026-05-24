@@ -33,3 +33,28 @@ fn decodes_rjtd_drifting_buoy_fixture() {
     assert_eq!(values[0].descriptor, 001087);
     assert_eq!(values[0].value, Some(2_102_606.0));
 }
+
+#[test]
+fn decodes_rjtd_iucc10_fixture() {
+    let bytes = include_bytes!("fixtures/rjtd_iucc10.bufr");
+    let messages = parse_messages(bytes).unwrap();
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].originating_centre, 34);
+    assert_eq!(messages[0].data_category, 12);
+    assert_eq!(messages[0].master_tables_version_number, 12);
+    assert_eq!(messages[0].typical_year, 2025);
+    assert_eq!(messages[0].typical_month, 8);
+    assert_eq!(messages[0].typical_day, 22);
+
+    let values = decode_values_with_builtin_tables(bytes).unwrap();
+    assert_eq!(values.len(), 32);
+    assert_eq!(values[7].descriptor, 001007);
+    assert_eq!(values[7].value, Some(174.0));
+    assert_eq!(values[10].descriptor, 001027);
+    assert_eq!(values[10].text.as_deref(), Some("nameless"));
+    assert_eq!(values[14].descriptor, 005002);
+    assert_eq!(values[14].value, Some(17.34));
+    assert_eq!(values[15].descriptor, 006002);
+    assert_eq!(values[15].value, Some(117.8));
+}

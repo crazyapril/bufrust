@@ -87,12 +87,13 @@ impl TableSet {
 
     pub fn from_eccodes_definitions(root: impl AsRef<Path>, message: &BufrMessage) -> Result<Self> {
         let root = root.as_ref();
-        let master_dir = root
-            .join("bufr")
-            .join("tables")
-            .join(message.master_table_number.to_string())
-            .join("wmo")
-            .join(message.master_tables_version_number.to_string());
+        let master_dir = resolve_eccodes_table_dir(
+            root.join("bufr")
+                .join("tables")
+                .join(message.master_table_number.to_string())
+                .join("wmo")
+                .join(message.master_tables_version_number.to_string()),
+        )?;
         let mut tables = Self::from_eccodes_dir(master_dir)?;
         if message.local_tables_version_number != 0 {
             let local_dir = local_table_dir(root, message);
@@ -448,6 +449,33 @@ fn matching_files(path: &Path, prefix: &str, suffix: &str) -> Result<Vec<PathBuf
     }
     files.sort();
     Ok(files)
+}
+
+fn resolve_eccodes_table_dir(path: PathBuf) -> Result<PathBuf> {
+    if path.is_dir() {
+        return Ok(path);
+    }
+    if path.is_file() {
+        let alias = std::fs::read_to_string(&path)?;
+        let alias = alias.trim();
+        if alias.is_empty()
+            || alias.contains(std::path::MAIN_SEPARATOR)
+            || alias.contains('/')
+            || alias.contains('\\')
+        {
+            return Err(BufrError::Table(format!(
+                "invalid ecCodes table alias {} -> {alias:?}",
+                path.display()
+            )));
+        }
+        if let Some(parent) = path.parent() {
+            return resolve_eccodes_table_dir(parent.join(alias));
+        }
+    }
+    Err(BufrError::Table(format!(
+        "ecCodes table directory does not exist: {}",
+        path.display()
+    )))
 }
 
 fn unit_to_type(unit: &str) -> &'static str {
