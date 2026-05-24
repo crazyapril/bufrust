@@ -50,8 +50,8 @@ class Message:
     ) -> list[DecodedValue]:
         """Decode Section 4 values for this message."""
 
-        definitions = _coalesce_path(definitions, self.definitions)
-        table_dir = _coalesce_path(table_dir, self.table_dir)
+        definitions = str(definitions) if definitions is not None else self.definitions
+        table_dir = str(table_dir) if table_dir is not None else self.table_dir
         if definitions is None and table_dir is None:
             definitions = builtin_definitions_path()
         if definitions is not None:
@@ -113,7 +113,7 @@ class Message:
     def to_dict(
         self,
         *,
-        decode: bool = False,
+        decode: bool = True,
         raw: bool = False,
         **decode_options: Any,
     ) -> dict[str, Any]:
@@ -162,8 +162,8 @@ class Dataset:
     ) -> None:
         self.data = bytes(data)
         self.path = path
-        self.definitions = _path_str(definitions)
-        self.table_dir = _path_str(table_dir)
+        self.definitions = str(definitions) if definitions is not None else None
+        self.table_dir = str(table_dir) if table_dir is not None else None
         raw_messages = _parse_all_bytes(self.data)
         chunks = _split_message_bytes(self.data)
         if len(raw_messages) != len(chunks):
@@ -217,8 +217,8 @@ class Dataset:
     ) -> list[list[DecodedValue]]:
         """Decode every message in the dataset."""
 
-        definitions = _coalesce_path(definitions, self.definitions)
-        table_dir = _coalesce_path(table_dir, self.table_dir)
+        definitions = str(definitions) if definitions is not None else self.definitions
+        table_dir = str(table_dir) if table_dir is not None else self.table_dir
         if table_dir is not None:
             tables = TableSet.from_eccodes(table_dir)
             return [message.decode_with_tables(tables) for message in self.messages]
@@ -257,7 +257,7 @@ class Dataset:
     def to_dict(
         self,
         *,
-        decode: bool = False,
+        decode: bool = True,
         raw: bool = False,
         **decode_options: Any,
     ) -> dict[str, Any]:
@@ -449,7 +449,7 @@ def tables_for_message(
 
     raw = message.raw if isinstance(message, Message) else message
     return TableSet.from_definitions(
-        _path_str(definitions) or builtin_definitions_path(),
+        str(definitions) if definitions is not None else builtin_definitions_path(),
         raw,
     )
 
@@ -470,15 +470,6 @@ def _split_message_bytes(data: bytes) -> list[bytes]:
         chunks.append(data[start:end])
         offset = end
     return chunks
-
-
-def _path_str(path: str | Path | None) -> str | None:
-    return None if path is None else str(path)
-
-
-def _coalesce_path(value: str | Path | None, default: str | None) -> str | None:
-    return _path_str(value) if value is not None else default
-
 
 read = open
 get = open

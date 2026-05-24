@@ -101,7 +101,7 @@ ds = bufrust.loads(payload)
 Convert to dictionaries:
 
 ```python
-record = ds[0].to_dict(decode=True)
+record = ds[0].to_dict()
 print(record["metadata"])
 print(record["values"][0])
 ```
@@ -187,8 +187,8 @@ first = ds.to_dataframe(message=0)
 If pandas is not installed, use dictionaries:
 
 ```python
-record = ds[0].to_dict(decode=True)
-debug = ds[0].to_dict(decode=True, raw=True)
+record = ds[0].to_dict()
+debug = ds[0].to_dict(raw=True)
 print(record["values"][0])
 ```
 
@@ -239,8 +239,9 @@ Decoded values expose a display-oriented `data` property. It is chosen in this
 order: `raw_text`, then `raw_meaning`, then `raw_value`.
 
 ```python
-record = ds[0].to_dict(decode=True)        # descriptor, name, data
-debug = ds[0].to_dict(decode=True, raw=True)
+record = ds[0].to_dict()                   # descriptor, name, data
+metadata = ds[0].to_dict(decode=False)     # skip value decoding
+debug = ds[0].to_dict(raw=True)
 df = ds.to_dataframe()                     # text and value columns
 debug_df = ds.to_dataframe(raw=True)
 ```
