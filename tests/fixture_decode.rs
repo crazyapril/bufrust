@@ -51,6 +51,8 @@ fn decodes_rjtd_iucc10_fixture() {
     assert_eq!(values.len(), 32);
     assert_eq!(values[7].descriptor, 001007);
     assert_eq!(values[7].value, Some(174.0));
+    assert_eq!(values[13].descriptor, 008005);
+    assert_eq!(values[13].meaning.as_deref(), Some("STORM CENTRE"));
     assert_eq!(values[10].descriptor, 001027);
     assert_eq!(values[10].text.as_deref(), Some("nameless"));
     assert_eq!(values[14].descriptor, 005002);

@@ -19,6 +19,8 @@ pub struct DecodedValue {
     pub raw: Option<u64>,
     #[pyo3(get)]
     pub text: Option<String>,
+    #[pyo3(get)]
+    pub meaning: Option<String>,
 }
 
 #[pymethods]
@@ -26,6 +28,8 @@ impl DecodedValue {
     fn __repr__(&self) -> String {
         if let Some(text) = &self.text {
             format!("DecodedValue({:06}, {:?})", self.descriptor, text)
+        } else if let Some(meaning) = &self.meaning {
+            format!("DecodedValue({:06}, {:?})", self.descriptor, meaning)
         } else {
             format!("DecodedValue({:06}, {:?})", self.descriptor, self.value)
         }
@@ -128,7 +132,8 @@ fn decode_compressed_descriptors_inner(
                 let element = tables
                     .element(code)
                     .ok_or(BufrError::MissingElement(code))?;
-                let column = read_compressed_element_column(element, coding, subset_count, reader)?;
+                let column =
+                    read_compressed_element_column(element, tables, coding, subset_count, reader)?;
                 if code == 31031 && coding.collecting_bitmap {
                     let bit = column.first().and_then(|value| value.value).unwrap_or(0.0) as u8;
                     coding.bitmap.push(bit);
@@ -155,6 +160,7 @@ fn decode_compressed_descriptors_inner(
                         .ok_or(BufrError::MissingElement(factor_code))?;
                     let factor_column = read_compressed_element_column(
                         factor_element,
+                        tables,
                         coding,
                         subset_count,
                         reader,
@@ -191,7 +197,15 @@ fn decode_compressed_descriptors_inner(
                     i += count;
                 }
             }
-            2 => apply_operator_or_column(code, descriptor, reader, coding, columns, subset_count)?,
+            2 => apply_operator_or_column(
+                code,
+                descriptor,
+                reader,
+                tables,
+                coding,
+                columns,
+                subset_count,
+            )?,
             3 => {
                 let sequence = tables
                     .sequence(code)
@@ -215,6 +229,7 @@ fn decode_compressed_descriptors_inner(
 
 fn read_compressed_element_column(
     element: &ElementDefinition,
+    tables: &TableSet,
     coding: &mut ValueCodingState,
     subset_count: usize,
     reader: &mut BitReader<'_>,
@@ -232,7 +247,7 @@ fn read_compressed_element_column(
     if element.unit == "CCITT IA5" {
         return read_compressed_string_column(element, width, subset_count, reader, coding);
     }
-    read_compressed_numeric_column(
+    let mut column = read_compressed_numeric_column(
         element.code,
         &element.name,
         width,
@@ -241,7 +256,9 @@ fn read_compressed_element_column(
         Descriptor::from_code(element.code).x != 31,
         subset_count,
         reader,
-    )
+    )?;
+    annotate_meanings(&mut column, element, tables);
+    Ok(column)
 }
 
 fn read_numeric_width(element: &ElementDefinition, coding: &ValueCodingState) -> u16 {
@@ -267,6 +284,14 @@ fn scale_and_reference(element: &ElementDefinition, coding: &ValueCodingState) -
     let scale = element.scale + coding.extra_scale;
     let reference = element.reference * coding.reference_factor;
     (scale, reference)
+}
+
+fn annotate_meanings(values: &mut [DecodedValue], element: &ElementDefinition, tables: &TableSet) {
+    for value in values {
+        if let Some(raw) = value.raw {
+            value.meaning = tables.code_meaning(element.code, raw).map(str::to_string);
+        }
+    }
 }
 
 fn read_compressed_numeric_column(
@@ -295,20 +320,20 @@ fn read_compressed_numeric_column(
                 Some(raw)
             }
         };
-        let value = if min_missing {
+        let raw_value = if min_missing {
             None
         } else {
-            increment.map(|increment| {
-                (min_raw as i128 + increment as i128 + reference as i128) as f64
-                    / 10_f64.powi(scale)
-            })
+            increment.map(|increment| min_raw + increment)
         };
+        let value =
+            raw_value.map(|raw| (raw as i128 + reference as i128) as f64 / 10_f64.powi(scale));
         out.push(DecodedValue {
             descriptor,
             name: name.to_string(),
             value,
-            raw: Some(min_raw),
+            raw: raw_value.or(Some(min_raw)),
             text: None,
+            meaning: None,
         });
     }
     Ok(out)
@@ -338,6 +363,7 @@ fn read_compressed_string_column(
                 value: Some(((string_base + subset_index + 1) as f64 * 1000.0) + width_bytes),
                 raw: None,
                 text,
+                meaning: None,
             });
         }
     } else {
@@ -349,6 +375,7 @@ fn read_compressed_string_column(
                 value: Some(((string_base + subset_index + 1) as f64 * 1000.0) + width_bytes),
                 raw: None,
                 text: text.clone(),
+                meaning: None,
             });
         }
     }
@@ -411,7 +438,7 @@ fn decode_descriptor_values_inner(
                 let element = tables
                     .element(code)
                     .ok_or(BufrError::MissingElement(code))?;
-                read_element(element, reader, coding, values)?;
+                read_element(element, tables, reader, coding, values)?;
                 if coding.local_descriptor_width.is_some() {
                     coding.local_descriptor_width = None;
                 }
@@ -437,7 +464,7 @@ fn decode_descriptor_values_inner(
                     let factor_element = tables
                         .element(factor_code)
                         .ok_or(BufrError::MissingElement(factor_code))?;
-                    let factor = read_element(factor_element, reader, coding, values)?
+                    let factor = read_element(factor_element, tables, reader, coding, values)?
                         .unwrap_or(0.0)
                         .max(0.0) as usize;
                     coding.history.push(factor_element.clone());
@@ -468,7 +495,7 @@ fn decode_descriptor_values_inner(
                     i += count;
                 }
             }
-            2 => apply_operator_or_value(code, descriptor, reader, coding, values)?,
+            2 => apply_operator_or_value(code, descriptor, reader, tables, coding, values)?,
             3 => {
                 let sequence = tables
                     .sequence(code)
@@ -491,6 +518,7 @@ fn decode_descriptor_values_inner(
 
 fn read_element(
     element: &ElementDefinition,
+    tables: &TableSet,
     reader: &mut BitReader<'_>,
     coding: &mut ValueCodingState,
     values: &mut Vec<DecodedValue>,
@@ -520,6 +548,7 @@ fn read_element(
             value: Some((string_index as f64 * 1000.0) + f64::from(width / 8)),
             raw: None,
             text,
+            meaning: None,
         });
         return Ok(None);
     }
@@ -538,6 +567,7 @@ fn read_element(
         value,
         raw: Some(raw),
         text: None,
+        meaning: tables.code_meaning(element.code, raw).map(str::to_string),
     });
     Ok(value)
 }
@@ -557,6 +587,7 @@ fn read_associated_field(
         value: Some(raw as f64),
         raw: Some(raw),
         text: None,
+        meaning: None,
     });
     Ok(())
 }
@@ -565,6 +596,7 @@ fn apply_operator_or_value(
     code: u32,
     descriptor: Descriptor,
     reader: &mut BitReader<'_>,
+    tables: &TableSet,
     coding: &mut ValueCodingState,
     values: &mut Vec<DecodedValue>,
 ) -> Result<()> {
@@ -574,7 +606,7 @@ fn apply_operator_or_value(
                 element.reference = -2_i64.pow(element.width as u32);
                 element.width = element.width.saturating_add(1);
             }
-            read_element(&element, reader, coding, values)?;
+            read_element(&element, tables, reader, coding, values)?;
         }
         return Ok(());
     }
@@ -585,6 +617,7 @@ fn apply_operator_or_value(
             value: Some(0.0),
             raw: Some(0),
             text: None,
+            meaning: None,
         });
     }
     if descriptor.x == 36 && descriptor.y == 0 {
@@ -609,6 +642,7 @@ fn apply_operator_or_column(
     code: u32,
     descriptor: Descriptor,
     reader: &mut BitReader<'_>,
+    tables: &TableSet,
     coding: &mut ValueCodingState,
     columns: &mut Vec<Vec<DecodedValue>>,
     subset_count: usize,
@@ -621,6 +655,7 @@ fn apply_operator_or_column(
             }
             columns.push(read_compressed_element_column(
                 &element,
+                tables,
                 coding,
                 subset_count,
                 reader,
@@ -637,6 +672,7 @@ fn apply_operator_or_column(
                     value: Some(0.0),
                     raw: Some(0),
                     text: None,
+                    meaning: None,
                 })
                 .collect(),
         );

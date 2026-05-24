@@ -58,6 +58,7 @@ impl SequenceDefinition {
 pub struct TableSet {
     elements: HashMap<u32, ElementDefinition>,
     sequences: HashMap<u32, SequenceDefinition>,
+    code_tables: HashMap<u32, HashMap<u64, String>>,
 }
 
 impl TableSet {
@@ -77,11 +78,22 @@ impl TableSet {
         self.sequences.insert(sequence.code, sequence);
     }
 
+    pub fn code_meaning(&self, code: u32, raw: u64) -> Option<&str> {
+        self.code_tables
+            .get(&code)
+            .and_then(|table| table.get(&raw))
+            .map(String::as_str)
+    }
+
     pub fn from_eccodes_dir(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let mut tables = Self::default();
         tables.load_eccodes_element_table(path.join("element.table"))?;
         tables.load_eccodes_sequence_def(path.join("sequence.def"))?;
+        let codetables = path.join("codetables");
+        if codetables.exists() {
+            tables.load_eccodes_code_tables(codetables)?;
+        }
         Ok(tables)
     }
 
@@ -105,6 +117,10 @@ impl TableSet {
                 let sequence = local_dir.join("sequence.def");
                 if sequence.exists() {
                     tables.load_eccodes_sequence_def(sequence)?;
+                }
+                let codetables = local_dir.join("codetables");
+                if codetables.exists() {
+                    tables.load_eccodes_code_tables(codetables)?;
                 }
             }
         }
@@ -197,6 +213,18 @@ impl TableSet {
                 .map(parse_code)
                 .collect::<Result<Vec<_>>>()?;
             self.insert_sequence(SequenceDefinition { code, members });
+        }
+        Ok(())
+    }
+
+    pub fn load_eccodes_code_tables(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        for file in matching_files(path.as_ref(), "", ".table")? {
+            let Some(stem) = file.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let code = parse_code(stem)?;
+            let table = parse_code_table(&file)?;
+            self.code_tables.insert(code, table);
         }
         Ok(())
     }
@@ -397,6 +425,10 @@ impl TableSet {
         self.sequence(code).cloned()
     }
 
+    fn get_meaning(&self, code: u32, raw: u64) -> Option<String> {
+        self.code_meaning(code, raw).map(str::to_string)
+    }
+
     #[pyo3(name = "expand")]
     fn py_expand(&self, descriptors: Vec<u32>) -> PyResult<Vec<u32>> {
         TableSet::expand(self, &descriptors).map_err(to_py_err)
@@ -449,6 +481,33 @@ fn matching_files(path: &Path, prefix: &str, suffix: &str) -> Result<Vec<PathBuf
     }
     files.sort();
     Ok(files)
+}
+
+fn parse_code_table(path: &Path) -> Result<HashMap<u64, String>> {
+    let text = std::fs::read_to_string(path)?;
+    let mut table = HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let Some(key) = parts.next() else {
+            continue;
+        };
+        let Some(_duplicate_key) = parts.next() else {
+            continue;
+        };
+        let meaning = parts.collect::<Vec<_>>().join(" ");
+        if meaning.is_empty() {
+            continue;
+        }
+        let raw = key
+            .parse::<u64>()
+            .map_err(|err| BufrError::Table(format!("bad code table key {key:?}: {err}")))?;
+        table.insert(raw, meaning);
+    }
+    Ok(table)
 }
 
 fn resolve_eccodes_table_dir(path: PathBuf) -> Result<PathBuf> {

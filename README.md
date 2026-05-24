@@ -8,28 +8,29 @@ It can:
 - parse one or more BUFR edition 4 messages from files or bytes
 - expose Section 0/1/2/3/4 metadata
 - read unexpanded descriptors from Section 3
-- use bundled WMO/ecCodes-style `element.table` and `sequence.def` definitions
+- use bundled ecCodes BUFR definitions, including WMO/local tables and
+  code/flag tables
 - load external ecCodes definitions or local/custom tables when needed
 - load BUFR4-45 CSV-style Table B and Table D files
 - expand Table D sequences and replication descriptors
 - decode Section 4 values for uncompressed and compressed BUFR4 messages
 - provide Python helpers such as `bufrust.open(...)`, `Dataset`, `Message`,
-  `to_dict()`, and optional `to_dataframe()`
+  `to_dict()`, and pandas-backed `to_dataframe()`
 
 The Rust core is intentionally small and explicit. The Python layer adds a
 friendlier interface for interactive use and notebooks.
 
 ## Status
 
-`bufrust` 1.0.0 is intended as a usable BUFR4 decoding library for Python and
-Rust. The decoder is covered by the ecCodes BUFR4 numeric and descriptor
-reference data used during development, plus a real ECMWF cyclone tracks BUFR
-fixture included in this repository.
+`bufrust` is intended as a usable BUFR4 decoding library for Python and Rust.
+The decoder is covered by the ecCodes BUFR4 numeric and descriptor reference
+data used during development, plus real ECMWF and JMA/RJTD BUFR fixtures
+included in this repository.
 
-`bufrust` bundles the WMO BUFR Table B/Table D files needed for normal
-descriptor expansion and value decoding. You only need to pass table paths when
-you want to override the bundled tables with local centre tables, a different
-ecCodes release, or BUFR4-45 CSV files.
+`bufrust` bundles the ecCodes BUFR definitions needed for descriptor expansion,
+value decoding, and code/flag-table meanings. You only need to pass table paths
+when you want to override the bundled tables with a different ecCodes release or
+BUFR4-45 CSV files.
 
 ## Installation
 
@@ -67,7 +68,7 @@ print(ds.metadata[0])
 print(ds.descriptors[0])
 ```
 
-Decode values using the bundled WMO tables:
+Decode values using the bundled ecCodes BUFR definitions:
 
 ```python
 import bufrust
@@ -116,11 +117,12 @@ pip install "bufrust[dataframe]"
 `to_dataframe()` is the most convenient way to inspect and filter decoded BUFR
 data. It returns a long-form table where each decoded BUFR value is one row.
 
-The repository includes a real ECMWF cyclone tracks BUFR4 file for examples and
-regression tests:
+The repository includes real BUFR4 files for examples and regression tests:
 
 ```text
 tests/fixtures/ecmwf_cyclone_tracks.bufr
+tests/fixtures/rjtd_drifting_buoy.bufr
+tests/fixtures/rjtd_iucc10.bufr
 ```
 
 Decode it directly into pandas:
@@ -136,13 +138,28 @@ print(frame.shape)
 ```
 
 `to_dataframe()` returns a long-form table with columns such as `descriptor`,
-`name`, `value`, `raw`, `text`, `subset`, `position`, and `message`.
+`name`, `value`, `raw`, `text`, `meaning`, `subset`, `position`, and `message`.
+
+Code-table and flag-table meanings are included by default in a `meaning`
+column populated from the bundled ecCodes `codetables` files:
+
+```python
+print(frame[["descriptor", "raw", "meaning"]].dropna().head())
+```
+
+Use `include_meaning` to control that column:
+
+```python
+with_meaning = ds.to_dataframe()                       # default
+compact = ds.to_dataframe(include_meaning=False)       # omit meaning
+first = ds.to_dataframe(message=0, include_meaning=True)
+```
 
 For `ecmwf_cyclone_tracks.bufr`, this produces 45 BUFR messages and more than
 2.4 million decoded rows:
 
 ```text
-(2413286, 8)
+(2413286, 9)
 ```
 
 Typical analysis patterns:
@@ -168,9 +185,34 @@ first = ds.to_dataframe(message=0)
 If pandas is not installed, use dictionaries:
 
 ```python
-record = ds[0].to_dict(decode=True)
+record = ds[0].to_dict(decode=True)                    # includes meaning
+compact = ds[0].to_dict(decode=True, include_meaning=False)
 print(record["values"][0])
 ```
+
+## Benchmark
+
+The following benchmark uses
+`tests/fixtures/ecmwf_cyclone_tracks.bufr`, a 914 KB BUFR4 file containing 45
+messages and 2,413,286 decoded values. The `bufrust` runs include code/flag
+table meaning lookup.
+
+Indicative median times on a local Windows workstation:
+
+| Library / operation | Median time | Output checked |
+| --- | ---: | --- |
+| `bufrust.open(path).decode_all()` | 0.764 s | 45 messages, 2,413,286 values, 149,430 meanings |
+| ecCodes Python `unpack + numericValues/stringValues` | 0.838 s | 45 messages, 2,413,286 numeric values, 90 strings |
+| pybufrkit `Decoder.process(...)` | 3.750 s | 45 messages, 2,413,286 values |
+| `bufrust.open(path).to_dataframe()` | 3.517 s | DataFrame shape `(2413286, 9)` |
+
+The ecCodes and pybufrkit rows use their normal low-level Python decode paths
+and do not construct a pandas DataFrame or a per-value `meaning` column. The
+ecCodes row calls `unpack` and reads `numericValues`/`stringValues`; it is
+included as a strong reference point for decode throughput. The
+`bufrust.decode_all()` and `bufrust.to_dataframe()` rows include code/flag table
+meaning lookup, and the `to_dataframe()` row also includes pandas allocation for
+the long-form table with the default `meaning` column.
 
 ## Python API
 
@@ -187,15 +229,24 @@ Use `definitions=` when you have an ecCodes definitions root containing
 the WMO and local table directories from the message header.
 
 Use `table_dir=` when you already know the exact table directory containing
-`element.table` and `sequence.def`.
+`element.table`, `sequence.def`, and optional `codetables/`.
+
+Code/flag table meanings are exposed by default on high-level conversions:
+
+```python
+df = ds.to_dataframe()                                 # includes meaning
+df = ds.to_dataframe(include_meaning=False)            # compact columns
+record = ds[0].to_dict(decode=True)                    # includes meaning
+record = ds[0].to_dict(decode=True, include_meaning=False)
+```
 
 Important objects:
 
 - `Dataset`: a file or byte buffer containing one or more messages
 - `Message`: one parsed BUFR message and its original bytes
 - `DecodedValue`: one decoded value with `descriptor`, `name`, `value`, `raw`,
-  and `text`
-- `TableSet`: loaded BUFR Table B/Table D definitions
+  `text`, and `meaning`
+- `TableSet`: loaded BUFR Table B/Table D definitions plus code/flag tables
 - `Descriptor`: an F/X/Y descriptor helper
 
 Low-level functions are also available:
@@ -209,7 +260,7 @@ values = bufrust.open("sample.bufr").decode()
 
 ## Table Definitions
 
-### Bundled WMO tables
+### Bundled ecCodes BUFR definitions
 
 For ordinary use, no table path is required:
 
@@ -225,10 +276,11 @@ print(bufrust.builtin_definitions_path())
 tables = bufrust.tables_for_message(ds[0])
 ```
 
-The bundled files are the ecCodes-style WMO BUFR Table B/Table D files
-(`element.table` and `sequence.def`) copied from ecCodes 2.47.0. The full
-ecCodes project is licensed under Apache-2.0; its license and notice are
-included under `python/bufrust/definitions/ECCODES_LICENSE` and
+The bundled files are copied from ecCodes 2.47.0 and include BUFR templates,
+WMO/local Table B and Table D files, version aliases, and `codetables` used for
+code/flag-table meanings. The full ecCodes project is licensed under
+Apache-2.0; its license and notice are included under
+`python/bufrust/definitions/ECCODES_LICENSE` and
 `python/bufrust/definitions/ECCODES_NOTICE`.
 
 ### External ecCodes-style tables
@@ -260,6 +312,7 @@ definitions/
           42/
             element.table
             sequence.def
+            codetables/
 ```
 
 ### BUFR4-45 CSV tables
@@ -325,11 +378,11 @@ python -c "import bufrust; print(bufrust.__version__)"
 Update versions before tagging a release:
 
 ```bash
-python scripts/bump-version.py v1.0.1
+python scripts/bump-version.py vX.Y.Z
 git add Cargo.toml Cargo.lock pyproject.toml python/bufrust/__init__.py
-git commit -m "Release v1.0.1"
-git tag v1.0.1
-git push origin main v1.0.1
+git commit -m "Release vX.Y.Z"
+git tag vX.Y.Z
+git push origin main vX.Y.Z
 ```
 
 ## Optional ecCodes Reference Tests
@@ -364,8 +417,8 @@ own reference script excludes because its numeric reference is incorrect.
 ## Notes And Limitations
 
 - BUFR editions other than edition 4 are rejected.
-- WMO Table B/Table D definitions are bundled. Local centre tables and custom
-  table versions may still need an explicit `definitions=` or `table_dir=`.
+- ecCodes BUFR definitions are bundled. Pass `definitions=` or `table_dir=`
+  only when you want to override the bundled tables.
 - `to_dataframe()` is optional and imports pandas only when called.
 - The current decoded value model is long-form. Higher-level xarray-style
   dimensions and coordinates can be built on top of this API as the decoder
