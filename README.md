@@ -97,11 +97,7 @@ payload = Path("sample.bufr").read_bytes()
 ds = bufrust.loads(payload)
 ```
 
-For pandas workflows, install the optional extra and call `to_dataframe()`:
-
-```bash
-pip install "bufrust[dataframe]"
-```
+For pandas workflows, call `to_dataframe()`:
 
 ```python
 ds = bufrust.open("tests/fixtures/ecmwf_cyclone_tracks.bufr")
